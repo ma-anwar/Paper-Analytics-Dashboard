@@ -1,10 +1,9 @@
 import dash
+import json
 import dash_core_components as dcc
 import dash_html_components as html
 from dash.dependencies import Input, Output
 import plotly.express as px
-from datetime import date, datetime
-
 import pandas as pd
 
 
@@ -13,11 +12,18 @@ external_stylesheets = ["https://codepen.io/chriddyp/pen/bWLwgP.css"]
 app = dash.Dash(__name__, external_stylesheets=external_stylesheets)
 server = app.server
 
-df = pd.read_csv("data/sales_data.csv", parse_dates=True)
 
-df["Sales"] = df["Sales"].map(lambda x: float(x[1:]))
+def load_cleaned_data():
+    df = pd.read_csv("data/sales_data.csv", parse_dates=True)
 
-df["Date"] = pd.to_datetime(df["Date"])
+    df["Sales"] = df["Sales"].map(lambda x: float(x[1:]))
+
+    df["Date"] = pd.to_datetime(df["Date"])
+
+    return df
+
+
+df = load_cleaned_data()
 
 minimum_date = min(df["Date"])
 
@@ -47,7 +53,6 @@ app.layout = html.Div(
             style={
                 "display": "flex",
                 "justifyContent": "center",
-                "verticalAlign": "center",
             },
         ),
         html.Div(
@@ -79,20 +84,27 @@ app.layout = html.Div(
             className="row",
         ),
         html.Div([html.H2("Total Regional Sales"), dcc.Graph(id="sales_graph")]),
+        dcc.Store(id="data_filtered_by_dates"),
     ]
 )
 
 
 @app.callback(
-    Output("sales_graph", "figure"),
+    Output("data_filtered_by_dates", "data"),
     [
         dash.dependencies.Input("date-picker-range", "start_date"),
         dash.dependencies.Input("date-picker-range", "end_date"),
     ],
 )
-def update_figure(start_date, end_date):
-    #     filtered_df = df[df.year == selected_year]
+def filter_by_dates(start_date, end_date):
     within_dates = df[df["Date"].between(start_date, end_date)]
+
+    return within_dates.to_json()
+
+
+@app.callback(Output("sales_graph", "figure"), Input("data_filtered_by_dates", "data"))
+def update_figure(data):
+    within_dates = pd.read_json(data)
 
     df_sales_by_region = within_dates.groupby("Region", as_index=False)["Sales"].sum()
 
@@ -105,29 +117,20 @@ def update_figure(start_date, end_date):
 
 
 @app.callback(
-    Output("unit_sales_total", "children"),
-    [
-        dash.dependencies.Input("date-picker-range", "start_date"),
-        dash.dependencies.Input("date-picker-range", "end_date"),
-    ],
+    Output("unit_sales_total", "children"), Input("data_filtered_by_dates", "data")
 )
-def update_total_unit_sales(start_date, end_date):
-    within_dates = df[df["Date"].between(start_date, end_date)]
+def update_total_unit_sales(data):
+
+    within_dates = pd.read_json(data)
 
     total_units_sold = within_dates["Units"].sum()
     return f"{total_units_sold}  Units Sold in Total Over this Time Period"
 
 
-@app.callback(
-    Output("unit_sales", "figure"),
-    [
-        dash.dependencies.Input("date-picker-range", "start_date"),
-        dash.dependencies.Input("date-picker-range", "end_date"),
-    ],
-)
-def update_unit_sales(start_date, end_date):
-    #     filtered_df = df[df.year == selected_year]
-    within_dates = df[df["Date"].between(start_date, end_date)]
+@app.callback(Output("unit_sales", "figure"), Input("data_filtered_by_dates", "data"))
+def update_unit_sales(data):
+
+    within_dates = pd.read_json(data)
 
     df_sales_by_region = within_dates.groupby("Region", as_index=False)["Units"].sum()
 
@@ -140,14 +143,13 @@ def update_unit_sales(start_date, end_date):
 @app.callback(
     Output("color_sales", "figure"),
     [
-        dash.dependencies.Input("date-picker-range", "start_date"),
-        dash.dependencies.Input("date-picker-range", "end_date"),
-        dash.dependencies.Input("selected_region", "value"),
+        Input("data_filtered_by_dates", "data"),
+        Input("selected_region", "value"),
     ],
 )
-def color_sales_by_region(start_date, end_date, value):
-    within_dates = df[df["Date"].between(start_date, end_date)]
-    filtered_by_region = within_dates[within_dates["Region"] == value]
+def color_sales_by_region(data, selected_region):
+    within_dates = pd.read_json(data)
+    filtered_by_region = within_dates[within_dates["Region"] == selected_region]
     df_sales_by_region = filtered_by_region.groupby("Color", as_index=False)[
         "Units"
     ].sum()
@@ -160,4 +162,3 @@ def color_sales_by_region(start_date, end_date, value):
 
 if __name__ == "__main__":
     app.run_server(debug=True)
-    print()
